@@ -31,6 +31,7 @@ const elements = {
   loopStartTime: $('#loopStartTime'),
   loopEndTime: $('#loopEndTime'),
   loopDuration: $('#loopDuration'),
+  playSampleBtn: $('#playSampleBtn'),
   
   // Sample Info
   rootNote: $('#rootNote'),
@@ -55,6 +56,26 @@ const elements = {
   releaseValue: $('#releaseValue'),
   envelopeCanvas: $('#envelopeCanvas'),
   
+  // Tempo
+  tempoSyncToggle: $('#tempoSyncToggle'),
+  bpmSlider: $('#bpmSlider'),
+  bpmInput: $('#bpmInput'),
+  noteDivisionSelect: $('#noteDivisionSelect'),
+  tempoDuration: $('#tempoDuration'),
+
+  // Export
+  metronomeToggle: $('#metronomeToggle'),
+  metronomeVolume: $('#metronomeVolume'),
+  metronomeSettings: $('#metronomeSettings'),
+  perfRecordBtn: $('#perfRecordBtn'),
+  perfRecordTime: $('#perfRecordTime'),
+  perfExportRow: $('#perfExportRow'),
+  exportPerfWav: $('#exportPerfWav'),
+  exportPerfWebm: $('#exportPerfWebm'),
+  sampleExportType: $('#sampleExportType'),
+  exportSampleWav: $('#exportSampleWav'),
+  exportSampleWebm: $('#exportSampleWebm'),
+
   // Settings
   polyphonySelect: $('#polyphonySelect'),
   normalizeToggle: $('#normalizeToggle'),
@@ -81,14 +102,20 @@ let state = {
   currentOctave: 4,
   peakLevel: 0,
   peakDecay: null,
-  
+
   // Sample data
   sampleDuration: 0,
   loopStart: 0,
   loopEnd: 0,
-  
+
   // Dragging
-  isDragging: null // 'start' | 'end' | null
+  isDragging: null, // 'start' | 'end' | null
+
+  // Performance recording
+  isRecordingPerformance: false,
+  perfRecordStartTime: 0,
+  perfRecordTimerId: null,
+  lastPerformanceBlob: null
 };
 
 // Note names for display
@@ -109,6 +136,7 @@ function init() {
   setupEventListeners();
   drawEnvelopeViz();
   updateOctaveDisplay();
+  updateTempoDurationDisplay();
 }
 
 async function initAudio() {
@@ -153,6 +181,21 @@ function setupEventListeners() {
   elements.sustainSlider.addEventListener('input', onEnvelopeChange);
   elements.releaseSlider.addEventListener('input', onEnvelopeChange);
 
+  // Tempo controls
+  elements.tempoSyncToggle.addEventListener('change', onTempoSyncChange);
+  elements.bpmSlider.addEventListener('input', onBpmChange);
+  elements.bpmInput.addEventListener('change', onBpmInputChange);
+  elements.noteDivisionSelect.addEventListener('change', onNoteDivisionChange);
+
+  // Export controls
+  elements.metronomeToggle.addEventListener('change', onMetronomeToggle);
+  elements.metronomeVolume.addEventListener('input', onMetronomeVolumeChange);
+  elements.perfRecordBtn.addEventListener('click', onPerfRecordToggle);
+  elements.exportPerfWav.addEventListener('click', () => exportPerformance('wav'));
+  elements.exportPerfWebm.addEventListener('click', () => exportPerformance('webm'));
+  elements.exportSampleWav.addEventListener('click', () => exportSample('wav'));
+  elements.exportSampleWebm.addEventListener('click', () => exportSample('webm'));
+
   // Settings
   elements.polyphonySelect.addEventListener('change', onPolyphonyChange);
   elements.normalizeToggle.addEventListener('change', onNormalizeChange);
@@ -173,6 +216,9 @@ function setupEventListeners() {
 
   // Loop handle dragging
   setupLoopHandleDragging();
+
+  // Play sample button
+  elements.playSampleBtn.addEventListener('click', onPlaySampleClick);
 
   // Canvas resize
   window.addEventListener('resize', resizeCanvases);
@@ -410,15 +456,18 @@ function onSampleLoaded({ analysis }) {
 
   elements.recordingStatus.textContent = 'Ready to play! Use the keyboard below';
 
-  // Draw waveform
-  drawWaveform();
+  // Resize canvas and draw waveform (ensures proper dimensions)
+  resizeCanvases();
 
   // Show and position loop region & handles
   elements.loopRegion.classList.add('active');
   elements.loopStartHandle.classList.add('active');
   elements.loopEndHandle.classList.add('active');
-  
+
   updateLoopUI();
+
+  // Enable export buttons
+  enableExportButtons();
 }
 
 // ─────────────────────────────────────────────────────────
@@ -590,6 +639,39 @@ function stopNote(midiNote, keyEl) {
 }
 
 // ─────────────────────────────────────────────────────────
+// Play Sample Preview
+// ─────────────────────────────────────────────────────────
+let samplePreviewPlaying = false;
+
+function onPlaySampleClick() {
+  if (!sampler || !state.hasRecording) return;
+
+  initAudio();
+
+  if (samplePreviewPlaying) {
+    // Stop playing - use the root note to stop
+    sampler.noteOff(sampler.rootMidi);
+    samplePreviewPlaying = false;
+    elements.playSampleBtn.classList.remove('playing');
+  } else {
+    // Play at root pitch (no pitch shift)
+    sampler.noteOn(sampler.rootMidi, 0.9);
+    samplePreviewPlaying = true;
+    elements.playSampleBtn.classList.add('playing');
+
+    // Auto-stop after a reasonable time (loop duration * 3 or 5 seconds max)
+    const duration = Math.min((state.loopEnd - state.loopStart) * 3, 5);
+    setTimeout(() => {
+      if (samplePreviewPlaying) {
+        sampler.noteOff(sampler.rootMidi);
+        samplePreviewPlaying = false;
+        elements.playSampleBtn.classList.remove('playing');
+      }
+    }, duration * 1000);
+  }
+}
+
+// ─────────────────────────────────────────────────────────
 // Envelope Controls
 // ─────────────────────────────────────────────────────────
 function onEnvelopeChange() {
@@ -680,17 +762,249 @@ function onVolumeChange() {
 
 function onRootNoteChange() {
   if (!sampler || !state.hasRecording) return;
-  
+
   const value = elements.rootNoteSelect.value;
   if (value !== 'auto') {
     sampler.setRootNote(parseInt(value));
-    
+
     // Update display
     const midi = parseInt(value);
     const noteName = NOTE_NAMES[midi % 12];
     const octave = Math.floor(midi / 12) - 1;
     elements.rootNote.textContent = `${noteName}${octave}`;
   }
+}
+
+// ─────────────────────────────────────────────────────────
+// Tempo Controls
+// ─────────────────────────────────────────────────────────
+function onTempoSyncChange() {
+  if (!sampler) return;
+
+  const enabled = elements.tempoSyncToggle.checked;
+  sampler.setTempoSync(enabled);
+
+  // Visual feedback - dim controls when disabled
+  const tempoControls = document.querySelector('.tempo-controls');
+  if (tempoControls) {
+    tempoControls.classList.toggle('disabled', !enabled);
+  }
+
+  updateTempoDurationDisplay();
+}
+
+function onBpmChange() {
+  const bpm = parseInt(elements.bpmSlider.value);
+  elements.bpmInput.value = bpm;
+
+  if (sampler) {
+    sampler.setTempo(bpm);
+  }
+
+  updateTempoDurationDisplay();
+}
+
+function onBpmInputChange() {
+  let bpm = parseInt(elements.bpmInput.value);
+  bpm = Math.max(20, Math.min(300, bpm || 120));
+
+  elements.bpmInput.value = bpm;
+  elements.bpmSlider.value = Math.min(200, bpm); // Slider max is 200
+
+  if (sampler) {
+    sampler.setTempo(bpm);
+  }
+
+  updateTempoDurationDisplay();
+}
+
+function onNoteDivisionChange() {
+  const division = parseFloat(elements.noteDivisionSelect.value);
+
+  if (sampler) {
+    sampler.setNoteDivision(division);
+  }
+
+  updateTempoDurationDisplay();
+}
+
+function updateTempoDurationDisplay() {
+  const bpm = parseInt(elements.bpmInput.value) || 120;
+  const division = parseFloat(elements.noteDivisionSelect.value) || 1;
+
+  // Calculate duration: (60 / BPM) * division * 1000 for ms
+  const durationMs = Math.round((60 / bpm) * division * 1000);
+
+  // Format: show ms for short durations, seconds for longer
+  if (durationMs >= 1000) {
+    const durationSec = (durationMs / 1000).toFixed(2);
+    elements.tempoDuration.textContent = `${durationSec}s`;
+  } else {
+    elements.tempoDuration.textContent = `${durationMs}ms`;
+  }
+}
+
+// ─────────────────────────────────────────────────────────
+// Export & Recording Controls
+// ─────────────────────────────────────────────────────────
+function onMetronomeToggle() {
+  if (!sampler) return;
+
+  if (elements.metronomeToggle.checked) {
+    const volume = elements.metronomeVolume.value / 100;
+    sampler.startMetronome(volume);
+    elements.metronomeSettings.classList.add('active');
+  } else {
+    sampler.stopMetronome();
+    elements.metronomeSettings.classList.remove('active');
+  }
+}
+
+function onMetronomeVolumeChange() {
+  if (!sampler) return;
+  sampler.setMetronomeVolume(elements.metronomeVolume.value / 100);
+}
+
+async function onPerfRecordToggle() {
+  await initAudio();
+
+  if (state.isRecordingPerformance) {
+    // Stop recording
+    state.isRecordingPerformance = false;
+    clearInterval(state.perfRecordTimerId);
+
+    const blob = await sampler.stopPerformanceRecording();
+
+    // Stop metronome if it was on
+    if (elements.metronomeToggle.checked) {
+      sampler.stopMetronome();
+    }
+
+    // Update UI
+    elements.perfRecordBtn.classList.remove('recording');
+    elements.perfRecordBtn.querySelector('.btn-text').textContent = 'Record';
+
+    if (blob && blob.size > 0) {
+      state.lastPerformanceBlob = blob;
+      elements.perfExportRow.hidden = false;
+      elements.exportPerfWav.disabled = false;
+      elements.exportPerfWebm.disabled = false;
+      showToast('Performance recorded!', 'success');
+    }
+  } else {
+    // Start recording
+    if (!state.hasRecording) {
+      showToast('Record a sample first', 'error');
+      return;
+    }
+
+    // Start metronome if enabled
+    if (elements.metronomeToggle.checked) {
+      const volume = elements.metronomeVolume.value / 100;
+      sampler.startMetronome(volume);
+    }
+
+    sampler.startPerformanceRecording();
+    state.isRecordingPerformance = true;
+    state.perfRecordStartTime = Date.now();
+
+    // Update UI
+    elements.perfRecordBtn.classList.add('recording');
+    elements.perfRecordBtn.querySelector('.btn-text').textContent = 'Stop';
+    elements.perfExportRow.hidden = true;
+
+    // Start timer
+    state.perfRecordTimerId = setInterval(updatePerfRecordTime, 100);
+  }
+}
+
+function updatePerfRecordTime() {
+  const elapsed = Date.now() - state.perfRecordStartTime;
+  const seconds = Math.floor(elapsed / 1000);
+  const ms = Math.floor((elapsed % 1000) / 10);
+  elements.perfRecordTime.textContent =
+    `${String(seconds).padStart(2, '0')}:${String(ms).padStart(2, '0')}`;
+}
+
+async function exportPerformance(format) {
+  if (!state.lastPerformanceBlob) {
+    showToast('No performance recorded', 'error');
+    return;
+  }
+
+  showLoading(true);
+
+  try {
+    let blob = state.lastPerformanceBlob;
+    let filename = `performance_${Date.now()}`;
+
+    if (format === 'wav') {
+      // Convert to WAV using AudioContext
+      const arrayBuffer = await blob.arrayBuffer();
+      const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+      blob = sampler._bufferToWav(audioBuffer);
+      filename += '.wav';
+    } else {
+      filename += '.webm';
+    }
+
+    downloadBlob(blob, filename);
+    showToast(`Exported as ${format.toUpperCase()}`, 'success');
+  } catch (err) {
+    console.error('Export error:', err);
+    showToast('Export failed', 'error');
+  }
+
+  showLoading(false);
+}
+
+async function exportSample(format) {
+  if (!sampler || !state.hasRecording) {
+    showToast('No sample loaded', 'error');
+    return;
+  }
+
+  showLoading(true);
+
+  try {
+    const exportType = elements.sampleExportType.value;
+    let blob;
+
+    if (exportType === 'loop') {
+      blob = await sampler.exportLoopRegion(format);
+    } else {
+      blob = await sampler.exportOriginalSample(format);
+    }
+
+    if (blob) {
+      const filename = `sample_${exportType}_${Date.now()}.${format === 'wav' ? 'wav' : 'webm'}`;
+      downloadBlob(blob, filename);
+      showToast(`Exported as ${format.toUpperCase()}`, 'success');
+    }
+  } catch (err) {
+    console.error('Export error:', err);
+    showToast('Export failed', 'error');
+  }
+
+  showLoading(false);
+}
+
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function enableExportButtons() {
+  elements.perfRecordBtn.disabled = false;
+  elements.exportSampleWav.disabled = false;
+  elements.exportSampleWebm.disabled = false;
+  elements.playSampleBtn.disabled = false;
 }
 
 // ─────────────────────────────────────────────────────────

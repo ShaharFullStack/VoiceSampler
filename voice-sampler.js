@@ -31,6 +31,17 @@ class VoiceSampler {
       useFilter: options.useFilter ?? false
     };
 
+    // BPM / Tempo sync configuration
+    // Note divisions define how many beats the loop represents
+    this.tempo = {
+      bpm: options.bpm ?? 120,
+      enabled: options.tempoSync ?? false,
+      // Note division: how many beats the loop should last
+      // 0.5 = 8th note (half a beat), 1 = quarter note (1 beat),
+      // 2 = half note, 4 = whole note, etc.
+      noteDivision: options.noteDivision ?? 1
+    };
+
     // Sample parameters
     this.rootMidi = 60;
     this.loopStart = 0;
@@ -59,6 +70,25 @@ class VoiceSampler {
 
     // Analysis cache
     this._analysisCache = null;
+
+    // Metronome
+    this.metronome = {
+      enabled: false,
+      gain: null,
+      intervalId: null,
+      nextTickTime: 0,
+      ticksPerBeat: 1,
+      volume: 0.5
+    };
+
+    // Performance recording
+    this.recorder = {
+      isRecording: false,
+      mediaRecorder: null,
+      destination: null,
+      chunks: [],
+      startTime: 0
+    };
   }
 
   // ─────────────────────────────────────────────────────────
@@ -92,6 +122,381 @@ class VoiceSampler {
   setRootNote(midiNote) {
     this.rootMidi = Math.max(0, Math.min(127, Math.round(midiNote)));
     return this;
+  }
+
+  setTempo(bpm, noteDivision = null) {
+    this.tempo.bpm = Math.max(20, Math.min(300, bpm));
+    if (noteDivision !== null) {
+      this.tempo.noteDivision = noteDivision;
+    }
+    this._emit('tempoChange', {
+      bpm: this.tempo.bpm,
+      noteDivision: this.tempo.noteDivision,
+      loopDuration: this.getTempoLoopDuration()
+    });
+    return this;
+  }
+
+  setTempoSync(enabled) {
+    this.tempo.enabled = enabled;
+    this._emit('tempoSyncChange', { enabled });
+    return this;
+  }
+
+  setNoteDivision(division) {
+    this.tempo.noteDivision = division;
+    this._emit('tempoChange', {
+      bpm: this.tempo.bpm,
+      noteDivision: this.tempo.noteDivision,
+      loopDuration: this.getTempoLoopDuration()
+    });
+    return this;
+  }
+
+  // Calculate loop duration in seconds based on BPM and note division
+  getTempoLoopDuration() {
+    // Seconds per beat = 60 / BPM
+    // Loop duration = seconds per beat * note division
+    const secondsPerBeat = 60 / this.tempo.bpm;
+    return secondsPerBeat * this.tempo.noteDivision;
+  }
+
+  // Get info about current tempo settings
+  getTempoInfo() {
+    const loopDuration = this.getTempoLoopDuration();
+    return {
+      bpm: this.tempo.bpm,
+      noteDivision: this.tempo.noteDivision,
+      enabled: this.tempo.enabled,
+      loopDurationMs: Math.round(loopDuration * 1000),
+      loopDurationSec: loopDuration
+    };
+  }
+
+  // ─────────────────────────────────────────────────────────
+  // Metronome
+  // ─────────────────────────────────────────────────────────
+
+  startMetronome(volume = 0.5) {
+    if (this.metronome.enabled) return;
+
+    this.metronome.enabled = true;
+    this.metronome.volume = volume;
+
+    // Create metronome gain node (separate from main output, not recorded)
+    this.metronome.gain = this.ac.createGain();
+    this.metronome.gain.gain.value = volume;
+    this.metronome.gain.connect(this.ac.destination); // Direct to speakers, bypasses recorder
+
+    // Schedule first tick
+    this.metronome.nextTickTime = this.ac.currentTime + 0.1;
+    this._scheduleMetronomeTicks();
+
+    this._emit('metronomeStart', { bpm: this.tempo.bpm });
+  }
+
+  stopMetronome() {
+    if (!this.metronome.enabled) return;
+
+    this.metronome.enabled = false;
+
+    if (this.metronome.intervalId) {
+      clearInterval(this.metronome.intervalId);
+      this.metronome.intervalId = null;
+    }
+
+    if (this.metronome.gain) {
+      this.metronome.gain.disconnect();
+      this.metronome.gain = null;
+    }
+
+    this._emit('metronomeStop');
+  }
+
+  setMetronomeVolume(volume) {
+    this.metronome.volume = Math.max(0, Math.min(1, volume));
+    if (this.metronome.gain) {
+      this.metronome.gain.gain.value = this.metronome.volume;
+    }
+  }
+
+  _scheduleMetronomeTicks() {
+    const scheduleAhead = 0.1; // Schedule 100ms ahead
+    const secondsPerBeat = 60 / this.tempo.bpm;
+
+    const scheduler = () => {
+      if (!this.metronome.enabled) return;
+
+      while (this.metronome.nextTickTime < this.ac.currentTime + scheduleAhead) {
+        this._playMetronomeTick(this.metronome.nextTickTime);
+        this.metronome.nextTickTime += secondsPerBeat;
+      }
+    };
+
+    // Run scheduler every 25ms
+    this.metronome.intervalId = setInterval(scheduler, 25);
+    scheduler(); // Run immediately
+  }
+
+  _playMetronomeTick(time) {
+    if (!this.metronome.gain) return;
+
+    // Create a short click sound
+    const osc = this.ac.createOscillator();
+    const clickGain = this.ac.createGain();
+
+    osc.frequency.value = 1000; // 1kHz click
+    osc.type = 'sine';
+
+    clickGain.gain.setValueAtTime(0.5, time);
+    clickGain.gain.exponentialRampToValueAtTime(0.001, time + 0.03);
+
+    osc.connect(clickGain);
+    clickGain.connect(this.metronome.gain);
+
+    osc.start(time);
+    osc.stop(time + 0.03);
+
+    this._emit('metronomeTick', { time });
+  }
+
+  // ─────────────────────────────────────────────────────────
+  // Performance Recording
+  // ─────────────────────────────────────────────────────────
+
+  startPerformanceRecording() {
+    if (this.recorder.isRecording) return false;
+
+    // Create a separate destination for recording (excludes metronome)
+    this.recorder.destination = this.ac.createMediaStreamDestination();
+
+    // Connect sampler output to recorder destination
+    this.output.connect(this.recorder.destination);
+
+    // Setup MediaRecorder
+    this.recorder.chunks = [];
+
+    const mimeTypes = [
+      'audio/webm;codecs=opus',
+      'audio/webm',
+      'audio/ogg;codecs=opus',
+      'audio/mp4'
+    ];
+
+    let mimeType;
+    for (const type of mimeTypes) {
+      if (MediaRecorder.isTypeSupported(type)) {
+        mimeType = type;
+        break;
+      }
+    }
+
+    this.recorder.mediaRecorder = new MediaRecorder(
+      this.recorder.destination.stream,
+      { mimeType }
+    );
+
+    this.recorder.mediaRecorder.ondataavailable = (e) => {
+      if (e.data?.size > 0) {
+        this.recorder.chunks.push(e.data);
+      }
+    };
+
+    this.recorder.mediaRecorder.start(100);
+    this.recorder.isRecording = true;
+    this.recorder.startTime = Date.now();
+
+    this._emit('recordingStart', { time: this.recorder.startTime });
+
+    return true;
+  }
+
+  async stopPerformanceRecording() {
+    if (!this.recorder.isRecording) return null;
+
+    this.recorder.isRecording = false;
+
+    const blob = await new Promise((resolve) => {
+      this.recorder.mediaRecorder.onstop = () => {
+        const type = this.recorder.mediaRecorder.mimeType || 'audio/webm';
+        resolve(new Blob(this.recorder.chunks, { type }));
+      };
+      this.recorder.mediaRecorder.stop();
+    });
+
+    // Disconnect recorder destination
+    this.output.disconnect(this.recorder.destination);
+    this.recorder.destination = null;
+    this.recorder.mediaRecorder = null;
+
+    const duration = Date.now() - this.recorder.startTime;
+    this._emit('recordingStop', { duration, blob });
+
+    return blob;
+  }
+
+  isRecordingPerformance() {
+    return this.recorder.isRecording;
+  }
+
+  // ─────────────────────────────────────────────────────────
+  // Export Functions
+  // ─────────────────────────────────────────────────────────
+
+  // Export the original loaded sample
+  async exportOriginalSample(format = 'wav') {
+    if (!this.buffer) return null;
+
+    if (format === 'wav') {
+      return this._bufferToWav(this.buffer);
+    } else {
+      // For other formats, encode via MediaRecorder
+      return this._encodeBuffer(this.buffer, format);
+    }
+  }
+
+  // Export just the loop region
+  async exportLoopRegion(format = 'wav') {
+    if (!this.buffer) return null;
+
+    const sr = this.buffer.sampleRate;
+    const startSample = Math.floor(this.loopStart * sr);
+    const endSample = Math.floor(this.loopEnd * sr);
+    const length = endSample - startSample;
+
+    const loopBuffer = this.ac.createBuffer(
+      this.buffer.numberOfChannels,
+      length,
+      sr
+    );
+
+    for (let ch = 0; ch < this.buffer.numberOfChannels; ch++) {
+      const src = this.buffer.getChannelData(ch);
+      const dst = loopBuffer.getChannelData(ch);
+      for (let i = 0; i < length; i++) {
+        dst[i] = src[startSample + i];
+      }
+    }
+
+    if (format === 'wav') {
+      return this._bufferToWav(loopBuffer);
+    } else {
+      return this._encodeBuffer(loopBuffer, format);
+    }
+  }
+
+  // Convert AudioBuffer to WAV blob
+  _bufferToWav(audioBuffer) {
+    const numChannels = audioBuffer.numberOfChannels;
+    const sampleRate = audioBuffer.sampleRate;
+    const format = 1; // PCM
+    const bitDepth = 16;
+
+    const bytesPerSample = bitDepth / 8;
+    const blockAlign = numChannels * bytesPerSample;
+
+    const samples = audioBuffer.length;
+    const dataSize = samples * blockAlign;
+    const buffer = new ArrayBuffer(44 + dataSize);
+    const view = new DataView(buffer);
+
+    // WAV header
+    const writeString = (offset, string) => {
+      for (let i = 0; i < string.length; i++) {
+        view.setUint8(offset + i, string.charCodeAt(i));
+      }
+    };
+
+    writeString(0, 'RIFF');
+    view.setUint32(4, 36 + dataSize, true);
+    writeString(8, 'WAVE');
+    writeString(12, 'fmt ');
+    view.setUint32(16, 16, true); // fmt chunk size
+    view.setUint16(20, format, true);
+    view.setUint16(22, numChannels, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * blockAlign, true);
+    view.setUint16(32, blockAlign, true);
+    view.setUint16(34, bitDepth, true);
+    writeString(36, 'data');
+    view.setUint32(40, dataSize, true);
+
+    // Interleave channels and write samples
+    const channels = [];
+    for (let ch = 0; ch < numChannels; ch++) {
+      channels.push(audioBuffer.getChannelData(ch));
+    }
+
+    let offset = 44;
+    for (let i = 0; i < samples; i++) {
+      for (let ch = 0; ch < numChannels; ch++) {
+        const sample = Math.max(-1, Math.min(1, channels[ch][i]));
+        const intSample = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
+        view.setInt16(offset, intSample, true);
+        offset += 2;
+      }
+    }
+
+    return new Blob([buffer], { type: 'audio/wav' });
+  }
+
+  // Encode buffer using MediaRecorder for WebM/compressed formats
+  async _encodeBuffer(audioBuffer, format = 'webm') {
+    return new Promise((resolve, reject) => {
+      // Create a temporary audio context for playback
+      const tempCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+      const source = tempCtx.createBufferSource();
+      source.buffer = audioBuffer;
+
+      // Create destination for recording
+      const dest = tempCtx.createMediaStreamDestination();
+      source.connect(dest);
+
+      // Also connect to a silent gain so we don't hear it
+      const silentGain = tempCtx.createGain();
+      silentGain.gain.value = 0;
+      source.connect(silentGain);
+      silentGain.connect(tempCtx.destination);
+
+      const mimeType = format === 'mp3' ? 'audio/webm;codecs=opus' : `audio/${format}`;
+      const chunks = [];
+
+      let recorderMimeType = 'audio/webm';
+      if (MediaRecorder.isTypeSupported(mimeType)) {
+        recorderMimeType = mimeType;
+      } else if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+        recorderMimeType = 'audio/webm;codecs=opus';
+      }
+
+      const recorder = new MediaRecorder(dest.stream, { mimeType: recorderMimeType });
+
+      recorder.ondataavailable = (e) => {
+        if (e.data?.size > 0) chunks.push(e.data);
+      };
+
+      recorder.onstop = () => {
+        tempCtx.close();
+        resolve(new Blob(chunks, { type: recorder.mimeType }));
+      };
+
+      recorder.onerror = (e) => {
+        tempCtx.close();
+        reject(e);
+      };
+
+      // Start recording and playback
+      recorder.start();
+      source.start();
+
+      // Stop after the buffer duration plus a small buffer
+      const duration = audioBuffer.duration * 1000 + 100;
+      setTimeout(() => {
+        if (recorder.state === 'recording') {
+          recorder.stop();
+        }
+      }, duration);
+    });
   }
 
   async loadFromBlob(blob, options = {}) {
@@ -171,25 +576,46 @@ class VoiceSampler {
     src.buffer = this.crossfadeBuffer || this.buffer;
     src.loop = true;
 
-    // Calculate playback rate for pitch
-    const rate = Math.pow(2, (midiNote - this.rootMidi) / 12);
-    src.playbackRate.setValueAtTime(rate, now);
+    // Calculate the base playback rate for pitch shifting
+    const pitchRate = Math.pow(2, (midiNote - this.rootMidi) / 12);
 
-    // Adjust loop points to keep the same perceived loop duration across all notes
-    // Problem: Higher pitched notes play faster, so they loop faster
-    // Solution: Extend the loop region proportionally to the playback rate
-    // so that the wall-clock loop time remains constant
-    //
-    // Perceived loop time = (loopEnd - loopStart) / rate
-    // To keep perceived time constant: (adjustedEnd - loopStart) / rate = (loopEnd - loopStart) / 1
-    // Therefore: adjustedEnd = loopStart + (loopEnd - loopStart) * rate
-    const baseLoopDuration = this.loopEnd - this.loopStart;
-    const adjustedLoopEnd = this.loopStart + (baseLoopDuration * rate);
+    // The original loop region duration (in seconds)
+    const originalLoopDuration = this.loopEnd - this.loopStart;
 
-    // Clamp to buffer bounds
-    const maxLoopEnd = (this.crossfadeBuffer || this.buffer).duration;
-    src.loopStart = this.loopStart;
-    src.loopEnd = Math.min(adjustedLoopEnd, maxLoopEnd);
+    let finalRate;
+    if (this.tempo.enabled) {
+      // Tempo sync mode: stretch/shrink the sample to fit the BPM-based duration
+      // Target duration is determined by BPM and note division
+      const targetDuration = this.getTempoLoopDuration();
+
+      // Calculate tempo stretch rate: how much to speed up/slow down to fit target
+      // If original is 1s and target is 0.5s, we need to play at 2x speed
+      // If original is 0.5s and target is 1s, we need to play at 0.5x speed
+      const tempoStretchRate = originalLoopDuration / targetDuration;
+
+      // Combine pitch shift and tempo stretch
+      // The final rate applies both transformations
+      finalRate = pitchRate * tempoStretchRate;
+
+      // Use the original loop points - the rate change handles the timing
+      src.loopStart = this.loopStart;
+      src.loopEnd = this.loopEnd;
+    } else {
+      // Normal mode (tempo sync disabled): just pitch shift
+      // But still ensure all notes loop at the same wall-clock time
+      finalRate = pitchRate;
+
+      // Adjust loop end to maintain consistent perceived loop duration
+      // across different pitches
+      const adjustedLoopDuration = originalLoopDuration * pitchRate;
+      const adjustedLoopEnd = this.loopStart + adjustedLoopDuration;
+      const maxLoopEnd = (this.crossfadeBuffer || this.buffer).duration;
+
+      src.loopStart = this.loopStart;
+      src.loopEnd = Math.min(adjustedLoopEnd, maxLoopEnd);
+    }
+
+    src.playbackRate.setValueAtTime(finalRate, now);
 
     // ADSR envelope
     gain.gain.setValueAtTime(0, now);

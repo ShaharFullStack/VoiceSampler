@@ -430,7 +430,7 @@ function drawWaveform() {
   const { width, height } = canvas;
 
   // Clear
-  ctx.fillStyle = '#252542';
+  ctx.fillStyle = '#1c1c21';
   ctx.fillRect(0, 0, width, height);
 
   if (!sampler || !state.hasRecording) return;
@@ -449,12 +449,12 @@ function drawWaveform() {
   const centerY = height / 2;
 
   for (let i = 0; i < waveform.length; i++) {
-    const amp = waveform[i] * centerY * 0.9;
+    const amp = waveform[i] * centerY * 0.85;
     ctx.fillRect(i, centerY - amp, 1, amp * 2);
   }
 
   // Draw center line
-  ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+  ctx.strokeStyle = 'rgba(255,255,255,0.06)';
   ctx.beginPath();
   ctx.moveTo(0, centerY);
   ctx.lineTo(width, centerY);
@@ -625,7 +625,7 @@ function drawEnvelopeViz() {
   const { width, height } = canvas;
 
   // Clear
-  ctx.fillStyle = '#252542';
+  ctx.fillStyle = '#1c1c21';
   ctx.fillRect(0, 0, width, height);
 
   const attack = parseInt(elements.attackSlider.value);
@@ -634,7 +634,7 @@ function drawEnvelopeViz() {
   const release = parseInt(elements.releaseSlider.value);
 
   const total = attack + decay + 200 + release; // 200ms sustain hold
-  const padding = 20;
+  const padding = 16;
   const drawWidth = width - padding * 2;
   const drawHeight = height - padding * 2;
 
@@ -651,8 +651,8 @@ function drawEnvelopeViz() {
 
   // Fill
   const gradient = ctx.createLinearGradient(0, 0, 0, height);
-  gradient.addColorStop(0, 'rgba(99, 102, 241, 0.3)');
-  gradient.addColorStop(1, 'rgba(99, 102, 241, 0.05)');
+  gradient.addColorStop(0, 'rgba(99, 102, 241, 0.15)');
+  gradient.addColorStop(1, 'rgba(99, 102, 241, 0.02)');
   ctx.fillStyle = gradient;
   ctx.lineTo(toX(total), toY(0));
   ctx.lineTo(toX(0), toY(0));
@@ -666,32 +666,23 @@ function drawEnvelopeViz() {
   ctx.lineTo(toX(attack + decay + 200), toY(sustain));
   ctx.lineTo(toX(total), toY(0));
   ctx.strokeStyle = '#6366f1';
-  ctx.lineWidth = 2;
+  ctx.lineWidth = 1.5;
   ctx.stroke();
 
   // Draw points
   const points = [
-    { x: toX(0), y: toY(0), label: 'A' },
-    { x: toX(attack), y: toY(1), label: 'D' },
-    { x: toX(attack + decay), y: toY(sustain), label: 'S' },
-    { x: toX(attack + decay + 200), y: toY(sustain), label: 'R' }
+    { x: toX(0), y: toY(0) },
+    { x: toX(attack), y: toY(1) },
+    { x: toX(attack + decay), y: toY(sustain) },
+    { x: toX(attack + decay + 200), y: toY(sustain) }
   ];
 
   ctx.fillStyle = '#818cf8';
   points.forEach(({ x, y }) => {
     ctx.beginPath();
-    ctx.arc(x, y, 4, 0, Math.PI * 2);
+    ctx.arc(x, y, 3, 0, Math.PI * 2);
     ctx.fill();
   });
-
-  // Labels
-  ctx.fillStyle = '#94a3b8';
-  ctx.font = '11px Inter, sans-serif';
-  ctx.textAlign = 'center';
-  ctx.fillText('A', toX(attack / 2), height - 5);
-  ctx.fillText('D', toX(attack + decay / 2), height - 5);
-  ctx.fillText('S', toX(attack + decay + 100), height - 5);
-  ctx.fillText('R', toX(attack + decay + 200 + release / 2), height - 5);
 }
 
 // ─────────────────────────────────────────────────────────

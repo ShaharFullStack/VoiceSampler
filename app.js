@@ -429,36 +429,30 @@ function drawWaveform() {
   const ctx = canvas.getContext('2d');
   const { width, height } = canvas;
 
-  // Clear
-  ctx.fillStyle = '#1c1c21';
+  // Clear - dark background
+  ctx.fillStyle = '#0d0d0d';
   ctx.fillRect(0, 0, width, height);
+
+  // Draw center line
+  const centerY = height / 2;
+  ctx.strokeStyle = '#333';
+  ctx.beginPath();
+  ctx.moveTo(0, centerY);
+  ctx.lineTo(width, centerY);
+  ctx.stroke();
 
   if (!sampler || !state.hasRecording) return;
 
   const waveform = sampler.getWaveformData(width);
   if (!waveform) return;
 
-  // Draw waveform
-  const gradient = ctx.createLinearGradient(0, 0, 0, height);
-  gradient.addColorStop(0, '#6366f1');
-  gradient.addColorStop(0.5, '#818cf8');
-  gradient.addColorStop(1, '#6366f1');
-
-  ctx.fillStyle = gradient;
-
-  const centerY = height / 2;
+  // Draw waveform - blue like professional samplers
+  ctx.fillStyle = '#4a9eff';
 
   for (let i = 0; i < waveform.length; i++) {
-    const amp = waveform[i] * centerY * 0.85;
+    const amp = waveform[i] * centerY * 0.9;
     ctx.fillRect(i, centerY - amp, 1, amp * 2);
   }
-
-  // Draw center line
-  ctx.strokeStyle = 'rgba(255,255,255,0.06)';
-  ctx.beginPath();
-  ctx.moveTo(0, centerY);
-  ctx.lineTo(width, centerY);
-  ctx.stroke();
 }
 
 function resizeCanvases() {
@@ -599,10 +593,10 @@ function stopNote(midiNote, keyEl) {
 // Envelope Controls
 // ─────────────────────────────────────────────────────────
 function onEnvelopeChange() {
-  elements.attackValue.textContent = `${elements.attackSlider.value}ms`;
-  elements.decayValue.textContent = `${elements.decaySlider.value}ms`;
-  elements.sustainValue.textContent = `${elements.sustainSlider.value}%`;
-  elements.releaseValue.textContent = `${elements.releaseSlider.value}ms`;
+  elements.attackValue.textContent = elements.attackSlider.value;
+  elements.decayValue.textContent = elements.decaySlider.value;
+  elements.sustainValue.textContent = elements.sustainSlider.value;
+  elements.releaseValue.textContent = elements.releaseSlider.value;
 
   updateEnvelope();
   drawEnvelopeViz();
@@ -624,8 +618,8 @@ function drawEnvelopeViz() {
   const ctx = canvas.getContext('2d');
   const { width, height } = canvas;
 
-  // Clear
-  ctx.fillStyle = '#1c1c21';
+  // Clear - dark background
+  ctx.fillStyle = '#0d0d0d';
   ctx.fillRect(0, 0, width, height);
 
   const attack = parseInt(elements.attackSlider.value);
@@ -633,56 +627,37 @@ function drawEnvelopeViz() {
   const sustain = parseInt(elements.sustainSlider.value) / 100;
   const release = parseInt(elements.releaseSlider.value);
 
-  const total = attack + decay + 200 + release; // 200ms sustain hold
-  const padding = 16;
+  const total = attack + decay + 150 + release;
+  const padding = 8;
   const drawWidth = width - padding * 2;
   const drawHeight = height - padding * 2;
 
   const toX = (ms) => padding + (ms / total) * drawWidth;
   const toY = (level) => padding + (1 - level) * drawHeight;
 
-  // Draw envelope shape
-  ctx.beginPath();
-  ctx.moveTo(toX(0), toY(0));
-  ctx.lineTo(toX(attack), toY(1)); // Attack
-  ctx.lineTo(toX(attack + decay), toY(sustain)); // Decay
-  ctx.lineTo(toX(attack + decay + 200), toY(sustain)); // Sustain
-  ctx.lineTo(toX(total), toY(0)); // Release
-
-  // Fill
-  const gradient = ctx.createLinearGradient(0, 0, 0, height);
-  gradient.addColorStop(0, 'rgba(99, 102, 241, 0.15)');
-  gradient.addColorStop(1, 'rgba(99, 102, 241, 0.02)');
-  ctx.fillStyle = gradient;
-  ctx.lineTo(toX(total), toY(0));
-  ctx.lineTo(toX(0), toY(0));
-  ctx.fill();
-
-  // Stroke
+  // Fill area
   ctx.beginPath();
   ctx.moveTo(toX(0), toY(0));
   ctx.lineTo(toX(attack), toY(1));
   ctx.lineTo(toX(attack + decay), toY(sustain));
-  ctx.lineTo(toX(attack + decay + 200), toY(sustain));
+  ctx.lineTo(toX(attack + decay + 150), toY(sustain));
   ctx.lineTo(toX(total), toY(0));
-  ctx.strokeStyle = '#6366f1';
+  ctx.lineTo(toX(total), height);
+  ctx.lineTo(toX(0), height);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(232, 122, 26, 0.15)';
+  ctx.fill();
+
+  // Stroke line
+  ctx.beginPath();
+  ctx.moveTo(toX(0), toY(0));
+  ctx.lineTo(toX(attack), toY(1));
+  ctx.lineTo(toX(attack + decay), toY(sustain));
+  ctx.lineTo(toX(attack + decay + 150), toY(sustain));
+  ctx.lineTo(toX(total), toY(0));
+  ctx.strokeStyle = '#e87a1a';
   ctx.lineWidth = 1.5;
   ctx.stroke();
-
-  // Draw points
-  const points = [
-    { x: toX(0), y: toY(0) },
-    { x: toX(attack), y: toY(1) },
-    { x: toX(attack + decay), y: toY(sustain) },
-    { x: toX(attack + decay + 200), y: toY(sustain) }
-  ];
-
-  ctx.fillStyle = '#818cf8';
-  points.forEach(({ x, y }) => {
-    ctx.beginPath();
-    ctx.arc(x, y, 3, 0, Math.PI * 2);
-    ctx.fill();
-  });
 }
 
 // ─────────────────────────────────────────────────────────

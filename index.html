@@ -5,215 +5,191 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Voice Sampler</title>
   <link rel="stylesheet" href="style.css">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
   <div class="app">
     <!-- Header -->
     <header class="header">
-      <h1 class="logo">
-        Voice Sampler
-      </h1>
-      <p class="tagline">Sample anything and play it like an instrument</p>
+      <h1 class="logo">Voice Sampler</h1>
+      <span class="tagline">Sample and Play</span>
     </header>
 
     <!-- Main Content -->
     <main class="main">
-      <!-- Recording Section -->
-      <section class="card recording-section" aria-labelledby="record-heading">
-        <h2 id="record-heading" class="card-title">
-          Recorder
-        </h2>
-        
-        <div class="recording-controls">
-          <button 
-            id="recordBtn" 
-            class="btn btn-record"
-            aria-label="Start recording"
-          >
-            <span class="btn-icon record-icon"></span>
-            <span class="btn-text">Record</span>
-          </button>
-
-          <div class="level-meter" aria-label="Level meter">
-            <div class="level-meter-fill" id="levelMeter"></div>
-            <div class="level-meter-peak" id="levelPeak"></div>
+      <!-- Sample Section: Record + Waveform -->
+      <div class="sample-section">
+        <!-- Recording Panel -->
+        <section class="panel recording-section" aria-labelledby="record-heading">
+          <div class="panel-header">
+            <h2 id="record-heading" class="panel-title">Record</h2>
           </div>
-
-          <div class="recording-time" id="recordingTime" aria-live="polite">
-            00:00
-          </div>
-        </div>
-
-        <div class="recording-status" id="recordingStatus">
-          Click Record and sample a sound.
-        </div>
-      </section>
-
-      <!-- Waveform Display -->
-      <section class="card waveform-section" aria-labelledby="waveform-heading">
-        <h2 id="waveform-heading" class="card-title">Waveform</h2>
-        
-        <div class="waveform-container" id="waveformContainer">
-          <canvas id="waveformCanvas" aria-label="Waveform display"></canvas>
-          
-          <!-- Loop Region - handles are separate for proper dragging -->
-          <div class="loop-region" id="loopRegion"></div>
-          <div class="loop-handle loop-start" id="loopStartHandle" 
-               role="slider" aria-label="Loop start" tabindex="0"></div>
-          <div class="loop-handle loop-end" id="loopEndHandle"
-               role="slider" aria-label="Loop end" tabindex="0"></div>
-
-          <!-- Playhead -->
-          <div class="playhead" id="playhead"></div>
-        </div>
-
-        <div class="loop-info" id="loopInfo">
-          <span>Loop: <span id="loopStartTime">0.00</span>s - <span id="loopEndTime">0.00</span>s</span>
-          <span>Duration: <span id="loopDuration">0.00</span>s</span>
-        </div>
-
-        <!-- Sample Info -->
-        <div class="sample-info" id="sampleInfo">
-          <div class="info-item">
-            <span class="info-label">Root Note</span>
-            <span class="info-value" id="rootNote">—</span>
-          </div>
-          <div class="info-item">
-            <span class="info-label">Frequency</span>
-            <span class="info-value" id="rootFreq">—</span>
-          </div>
-          <div class="info-item">
-            <span class="info-label">Confidence</span>
-            <span class="info-value" id="pitchConfidence">—</span>
-          </div>
-          <div class="info-item">
-            <span class="info-label">Duration</span>
-            <span class="info-value" id="duration">—</span>
-          </div>
-        </div>
-      </section>
-
-      <!-- Virtual Keyboard -->
-      <section class="card keyboard-section" aria-labelledby="keyboard-heading">
-        <h2 id="keyboard-heading" class="card-title">Keyboard</h2>
-
-        <div class="keyboard-controls">
-          <div class="octave-control">
-            <button id="octaveDown" class="btn btn-small" aria-label="Octave down">
-              ◀
+          <div class="panel-content">
+            <button id="recordBtn" class="btn-record" aria-label="Start recording">
+              <span class="record-icon"></span>
+              <span class="btn-text">Rec</span>
             </button>
-            <span class="octave-display" id="octaveDisplay">C4</span>
-            <button id="octaveUp" class="btn btn-small" aria-label="Octave up">
-              ▶
-            </button>
+
+            <div class="recording-time" id="recordingTime" aria-live="polite">00:00</div>
+
+            <div class="level-meter" aria-label="Level meter">
+              <div class="level-meter-fill" id="levelMeter"></div>
+              <div class="level-meter-peak" id="levelPeak"></div>
+            </div>
+
+            <div class="recording-status" id="recordingStatus">Ready</div>
           </div>
-        </div>
+        </section>
 
-        <div class="keyboard" id="keyboard" role="group" aria-label="Virtual piano">
-          <!-- Keys will be generated by JS -->
-        </div>
-
-        <div class="keyboard-hint">
-          Use keyboard: A S D F G H J K L or click the keys
-        </div>
-      </section>
-
-      <!-- Envelope Controls -->
-      <section class="card envelope-section" aria-labelledby="envelope-heading">
-        <h2 id="envelope-heading" class="card-title">Envelope</h2>
-
-        <div class="envelope-controls">
-          <div class="envelope-slider">
-            <label for="attackSlider">Attack</label>
-            <input type="range" id="attackSlider" min="0" max="500" value="10" 
-                   aria-describedby="attackValue">
-            <span class="slider-value" id="attackValue">10ms</span>
+        <!-- Waveform Panel -->
+        <section class="panel waveform-section" aria-labelledby="waveform-heading">
+          <div class="panel-header">
+            <h2 id="waveform-heading" class="panel-title">Sample</h2>
           </div>
+          <div class="panel-content">
+            <div class="waveform-container" id="waveformContainer">
+              <canvas id="waveformCanvas" aria-label="Waveform display"></canvas>
+              <div class="loop-region" id="loopRegion"></div>
+              <div class="loop-handle loop-start" id="loopStartHandle"
+                   role="slider" aria-label="Loop start" tabindex="0"></div>
+              <div class="loop-handle loop-end" id="loopEndHandle"
+                   role="slider" aria-label="Loop end" tabindex="0"></div>
+              <div class="playhead" id="playhead"></div>
+            </div>
 
-          <div class="envelope-slider">
-            <label for="decaySlider">Decay</label>
-            <input type="range" id="decaySlider" min="0" max="500" value="80"
-                   aria-describedby="decayValue">
-            <span class="slider-value" id="decayValue">80ms</span>
+            <div class="loop-info" id="loopInfo">
+              <span>Start: <span id="loopStartTime">0.00</span>s</span>
+              <span>End: <span id="loopEndTime">0.00</span>s</span>
+              <span>Length: <span id="loopDuration">0.00</span>s</span>
+            </div>
+
+            <div class="sample-info" id="sampleInfo">
+              <div class="info-item">
+                <span class="info-label">Root</span>
+                <span class="info-value" id="rootNote">--</span>
+              </div>
+              <div class="info-item">
+                <span class="info-label">Freq</span>
+                <span class="info-value" id="rootFreq">--</span>
+              </div>
+              <div class="info-item">
+                <span class="info-label">Conf</span>
+                <span class="info-value" id="pitchConfidence">--</span>
+              </div>
+              <div class="info-item">
+                <span class="info-label">Dur</span>
+                <span class="info-value" id="duration">--</span>
+              </div>
+            </div>
           </div>
+        </section>
+      </div>
 
-          <div class="envelope-slider">
-            <label for="sustainSlider">Sustain</label>
-            <input type="range" id="sustainSlider" min="0" max="100" value="75"
-                   aria-describedby="sustainValue">
-            <span class="slider-value" id="sustainValue">75%</span>
+      <!-- Controls Row: Amp, Keyboard, Settings -->
+      <div class="controls-row">
+        <!-- Amp Envelope -->
+        <section class="panel envelope-section" aria-labelledby="amp-heading">
+          <div class="panel-header">
+            <h2 id="amp-heading" class="panel-title">Amp</h2>
           </div>
-
-          <div class="envelope-slider">
-            <label for="releaseSlider">Release</label>
-            <input type="range" id="releaseSlider" min="0" max="1000" value="180"
-                   aria-describedby="releaseValue">
-            <span class="slider-value" id="releaseValue">180ms</span>
+          <div class="panel-content">
+            <div class="envelope-controls">
+              <div class="envelope-slider">
+                <label for="attackSlider">A</label>
+                <input type="range" id="attackSlider" min="0" max="500" value="10">
+                <span class="slider-value" id="attackValue">10</span>
+              </div>
+              <div class="envelope-slider">
+                <label for="decaySlider">D</label>
+                <input type="range" id="decaySlider" min="0" max="500" value="80">
+                <span class="slider-value" id="decayValue">80</span>
+              </div>
+              <div class="envelope-slider">
+                <label for="sustainSlider">S</label>
+                <input type="range" id="sustainSlider" min="0" max="100" value="75">
+                <span class="slider-value" id="sustainValue">75</span>
+              </div>
+              <div class="envelope-slider">
+                <label for="releaseSlider">R</label>
+                <input type="range" id="releaseSlider" min="0" max="1000" value="180">
+                <span class="slider-value" id="releaseValue">180</span>
+              </div>
+            </div>
+            <div class="envelope-viz">
+              <canvas id="envelopeCanvas" aria-label="Envelope display"></canvas>
+            </div>
           </div>
-        </div>
+        </section>
 
-        <!-- ADSR Visualization -->
-        <div class="envelope-viz">
-          <canvas id="envelopeCanvas" aria-label="ADSR envelope display"></canvas>
-        </div>
-      </section>
-
-      <!-- Settings -->
-      <section class="card settings-section" aria-labelledby="settings-heading">
-        <h2 id="settings-heading" class="card-title">
-          Settings
-        </h2>
-
-        <div class="settings-grid">
-          <div class="setting-item">
-            <label for="polyphonySelect">Polyphony</label>
-            <select id="polyphonySelect">
-              <option value="1">Mono (1)</option>
-              <option value="4">4 voices</option>
-              <option value="8" selected>8 voices</option>
-              <option value="16">16 voices</option>
-            </select>
+        <!-- Keyboard -->
+        <section class="panel keyboard-section" aria-labelledby="keyboard-heading">
+          <div class="panel-header">
+            <h2 id="keyboard-heading" class="panel-title">Keyboard</h2>
+            <div class="octave-control">
+              <button id="octaveDown" class="btn btn-small" aria-label="Octave down">-</button>
+              <span class="octave-display" id="octaveDisplay">C4</span>
+              <button id="octaveUp" class="btn btn-small" aria-label="Octave up">+</button>
+            </div>
           </div>
-
-          <div class="setting-item">
-            <label for="normalizeToggle">Auto Normalize</label>
-            <label class="toggle">
-              <input type="checkbox" id="normalizeToggle" checked>
-              <span class="toggle-slider"></span>
-            </label>
+          <div class="panel-content">
+            <div class="keyboard" id="keyboard" role="group" aria-label="Virtual keyboard">
+              <!-- Keys generated by JS -->
+            </div>
+            <div class="keyboard-hint">Keys: A S D F G H J K L</div>
           </div>
+        </section>
 
-          <div class="setting-item">
-            <label for="rootNoteSelect">Manual Root Note</label>
-            <select id="rootNoteSelect">
-              <option value="auto" selected>Auto Detect</option>
-              <option value="48">C3</option>
-              <option value="60">C4</option>
-              <option value="72">C5</option>
-            </select>
+        <!-- Settings -->
+        <section class="panel settings-section" aria-labelledby="settings-heading">
+          <div class="panel-header">
+            <h2 id="settings-heading" class="panel-title">Options</h2>
           </div>
-
-          <div class="setting-item">
-            <label for="volumeSlider">Volume</label>
-            <input type="range" id="volumeSlider" min="0" max="100" value="90">
+          <div class="panel-content">
+            <div class="settings-grid">
+              <div class="setting-item">
+                <label for="polyphonySelect">Voices</label>
+                <select id="polyphonySelect">
+                  <option value="1">1</option>
+                  <option value="4">4</option>
+                  <option value="8" selected>8</option>
+                  <option value="16">16</option>
+                </select>
+              </div>
+              <div class="setting-item">
+                <label for="rootNoteSelect">Root</label>
+                <select id="rootNoteSelect">
+                  <option value="auto" selected>Auto</option>
+                  <option value="48">C3</option>
+                  <option value="60">C4</option>
+                  <option value="72">C5</option>
+                </select>
+              </div>
+              <div class="setting-item">
+                <label for="normalizeToggle">Normalize</label>
+                <label class="toggle">
+                  <input type="checkbox" id="normalizeToggle" checked>
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+              <div class="setting-item">
+                <label for="volumeSlider">Volume</label>
+                <input type="range" id="volumeSlider" min="0" max="100" value="90">
+              </div>
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
+      </div>
     </main>
 
     <!-- Footer -->
     <footer class="footer">
-      <p>Made by Shahar Maoz <span id="footerYear"></span></p>
+      <p>Voice Sampler <span id="footerYear"></span></p>
     </footer>
   </div>
 
   <!-- Loading Overlay -->
   <div class="loading-overlay" id="loadingOverlay" hidden>
     <div class="loading-spinner"></div>
-    <p>Processing recording...</p>
+    <p>Processing...</p>
   </div>
 
   <!-- Toast Notifications -->
@@ -221,8 +197,7 @@
 
   <script type="module" src="app.js"></script>
   <script>
-    const year = new Date().getFullYear();
-    document.getElementById('footerYear').textContent = year;
+    document.getElementById('footerYear').textContent = new Date().getFullYear();
   </script>
 </body>
 </html>

@@ -170,12 +170,26 @@ class VoiceSampler {
     // Use crossfade buffer if available, otherwise original
     src.buffer = this.crossfadeBuffer || this.buffer;
     src.loop = true;
-    src.loopStart = this.loopStart;
-    src.loopEnd = this.loopEnd;
 
     // Calculate playback rate for pitch
     const rate = Math.pow(2, (midiNote - this.rootMidi) / 12);
     src.playbackRate.setValueAtTime(rate, now);
+
+    // Adjust loop points to keep the same perceived loop duration across all notes
+    // Problem: Higher pitched notes play faster, so they loop faster
+    // Solution: Extend the loop region proportionally to the playback rate
+    // so that the wall-clock loop time remains constant
+    //
+    // Perceived loop time = (loopEnd - loopStart) / rate
+    // To keep perceived time constant: (adjustedEnd - loopStart) / rate = (loopEnd - loopStart) / 1
+    // Therefore: adjustedEnd = loopStart + (loopEnd - loopStart) * rate
+    const baseLoopDuration = this.loopEnd - this.loopStart;
+    const adjustedLoopEnd = this.loopStart + (baseLoopDuration * rate);
+
+    // Clamp to buffer bounds
+    const maxLoopEnd = (this.crossfadeBuffer || this.buffer).duration;
+    src.loopStart = this.loopStart;
+    src.loopEnd = Math.min(adjustedLoopEnd, maxLoopEnd);
 
     // ADSR envelope
     gain.gain.setValueAtTime(0, now);
